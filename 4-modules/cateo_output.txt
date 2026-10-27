@@ -1,0 +1,141 @@
+===== TREE =====
+.
+├── cateo_output.txt
+├── main.tf
+├── networking.tf
+├── notes
+├── outputs.tf
+├── terraform.tfvars
+└── variables.tf
+
+1 directory, 7 files
+
+===== FILE CONTENTS =====
+==============================
+FILE: ./variables.tf
+==============================
+./variables.tf: ASCII text
+
+variable "access_key" {
+  description = "access_key"
+  type        = string
+  sensitive   = true
+}
+variable "secret_key" {
+  description = "secret_key"
+  type        = string
+  sensitive   = true
+}
+variable "service_names" {
+  description = "Name of the ECR repositories"
+  type        = set(string)
+}
+==============================
+FILE: ./networking.tf
+==============================
+./networking.tf: ASCII text
+
+module "vpc" {
+  source = "terraform-aws-modules/vpc/aws"
+
+  name = "terraform-vpc"
+  cidr = "10.0.0.0/16"
+
+  azs            = ["us-east-1a", "us-east-1b"]
+  public_subnets = ["10.0.101.0/24", "10.0.102.0/24"]
+
+  enable_vpn_gateway   = true
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = {
+    Terraform   = "true"
+    Environment = "dev"
+  }
+}
+
+module "terraform-sg" {
+  source = "terraform-aws-modules/security-group/aws"
+
+  name                = "https rule"
+  description         = "Sg para Javier"
+  vpc_id              = module.vpc.vpc_id
+  ingress_cidr_blocks = ["0.0.0.0/0"]
+  ingress_rules       = ["https-443-tcp"]
+  egress_cidr_blocks  = ["0.0.0.0/0"]
+  egress_rules        = ["https-443-tcp"]
+}
+==============================
+FILE: ./main.tf
+==============================
+./main.tf: ASCII text
+
+
+
+terraform {
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+    }
+  }
+}
+
+provider "aws" {
+  region     = "us-east-1"
+  access_key = var.access_key
+  secret_key = var.secret_key
+}
+locals {
+  extra_tag = "extra-tag"
+}
+resource "aws_instance" "example" {
+  for_each = var.service_names
+
+  ami                    = "ami-011899242bb902164" # Ubuntu 20.04 LTS // us-east-1
+  instance_type          = "t2.micro"
+  subnet_id              = module.vpc.public_subnets[0]
+  vpc_security_group_ids = [module.terraform-sg.security_group_id] 
+  associate_public_ip_address = true 
+
+  tags = {
+    ExtraTag = local.extra_tag
+    Name     = "EC2-${each.key}"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "ec2_log_group" {
+  for_each = var.service_names
+
+
+  tags = {
+    Environment = "test"
+    Service     = each.key
+  }
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+==============================
+FILE: ./notes
+==============================
+./notes: ASCII text, with no line terminators
+
+- Modules https://registry.terraform.io/modules/terraform-aws-modules/security-group/aws/latest
+==============================
+FILE: ./outputs.tf
+==============================
+./outputs.tf: ASCII text
+
+output "instance_ip_addr" {
+  #value = values(aws_instance.example).*.private_ip
+  value = { for service, i in aws_instance.example : service => i.private_ip }
+}
+
+==============================
+FILE: ./terraform.tfvars
+==============================
+./terraform.tfvars: ASCII text
+
+access_key = "NO"
+secret_key = "PE"
+service_names = ["service1", "service2", "service3"]
